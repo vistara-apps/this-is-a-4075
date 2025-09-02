@@ -64,3 +64,18 @@ export const formatWalletName = (walletName) => {
   
   return walletName;
 };
+
+/**
+ * Shorten a Solana address for display
+ * @param {string} address - Solana address
+ * @param {number} chars - Number of characters to show at start and end
+ * @returns {string} Shortened address
+ */
+export const shortenAddress = (address, chars = 4) => {
+  if (!address) return '';
+  
+  const start = address.substring(0, chars);
+  const end = address.substring(address.length - chars);
+  
+  return `${start}...${end}`;
+};
