@@ -4,10 +4,7 @@
 import { 
   PhantomWalletAdapter,
   SolflareWalletAdapter,
-  BackpackWalletAdapter,
-  BraveWalletAdapter,
   CoinbaseWalletAdapter,
-  SlopeWalletAdapter,
   TorusWalletAdapter,
 } from '@solana/wallet-adapter-wallets';
 import { WALLET_AUTOCONNECT, WALLET_DISCONNECT_ON_CHANGE } from '../config/constants';
@@ -20,10 +17,7 @@ export const getSupportedWalletAdapters = () => {
   return [
     new PhantomWalletAdapter(),
     new SolflareWalletAdapter(),
-    new BackpackWalletAdapter(),
-    new BraveWalletAdapter(),
     new CoinbaseWalletAdapter(),
-    new SlopeWalletAdapter(),
     new TorusWalletAdapter(),
   ];
 };
@@ -49,10 +43,7 @@ export const getWalletIcon = (walletName) => {
   const walletIcons = {
     'Phantom': 'https://phantom.app/favicon.ico',
     'Solflare': 'https://solflare.com/favicon.ico',
-    'Backpack': 'https://backpack.app/favicon.ico',
-    'Brave': 'https://brave.com/static-assets/images/brave-favicon.png',
     'Coinbase Wallet': 'https://www.coinbase.com/favicon.ico',
-    'Slope': 'https://slope.finance/favicon.ico',
     'Torus': 'https://tor.us/favicon.ico',
   };
   
@@ -73,4 +64,3 @@ export const formatWalletName = (walletName) => {
   
   return walletName;
 };
-
