@@ -1,79 +1,114 @@
-import React, { useState } from 'react'
-import { Card } from './Card'
-import { Button } from './Button'
-import { Input } from './Input'
-import { Trophy, Clock, Users, DollarSign } from 'lucide-react'
-import { useBets } from '../context/BetContext'
-import { useWallet } from '../context/WalletContext'
-
-const mockEvents = [
-  {
-    id: 1,
-    title: 'NBA Finals Game 7',
-    description: 'Lakers vs Celtics - Who will win?',
-    options: ['Lakers', 'Celtics'],
-    totalPool: 150.5,
-    participants: 234,
-    endTime: '2024-01-20T20:00:00Z',
-    status: 'active'
-  },
-  {
-    id: 2,
-    title: 'Champions League Final',
-    description: 'Manchester City vs Real Madrid',
-    options: ['Manchester City', 'Real Madrid', 'Draw'],
-    totalPool: 89.2,
-    participants: 156,
-    endTime: '2024-01-25T19:00:00Z',
-    status: 'active'
-  },
-  {
-    id: 3,
-    title: 'Cryptocurrency Price Prediction',
-    description: 'Will SOL reach $200 by end of month?',
-    options: ['Yes', 'No'],
-    totalPool: 45.8,
-    participants: 89,
-    endTime: '2024-01-31T23:59:59Z',
-    status: 'active'
-  }
-]
+import React, { useState, useEffect } from 'react';
+import { Card } from './Card';
+import { Button } from './Button';
+import { Input } from './Input';
+import { Trophy, Clock, Users, DollarSign, AlertCircle, Loader2 } from 'lucide-react';
+import { useBets } from '../context/BetContext';
+import { useWallet } from '../context/WalletContext';
+import { TransactionStatus } from './TransactionStatus';
+import { useBetTransaction } from '../hooks/useBetTransaction';
+import { useToast } from '../hooks/useToast';
+import { MIN_BET_AMOUNT, MAX_BET_AMOUNT, PLATFORM_FEE_PERCENT } from '../config/constants';
 
 export function BettingInterface() {
-  const [selectedEvent, setSelectedEvent] = useState(null)
-  const [selectedOption, setSelectedOption] = useState('')
-  const [betAmount, setBetAmount] = useState('')
-  const { placeBet } = useBets()
-  const { isConnected } = useWallet()
+  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [selectedOption, setSelectedOption] = useState('');
+  const [betAmount, setBetAmount] = useState('');
+  const [txStatus, setTxStatus] = useState(null);
+  const { events, isLoading: isBetsLoading, placeBet } = useBets();
+  const { isConnected, balance } = useWallet();
+  const { isProcessing, currentTxSignature, calculatePotentialPayout } = useBetTransaction();
+  const toast = useToast();
 
-  const handlePlaceBet = () => {
-    if (!selectedEvent || !selectedOption || !betAmount) return
-    
-    placeBet({
-      eventId: selectedEvent.id,
-      outcome: selectedOption,
-      stakeAmount: parseFloat(betAmount)
-    })
-    
-    // Reset form
-    setSelectedEvent(null)
-    setSelectedOption('')
-    setBetAmount('')
-  }
+  // Calculate potential payout
+  const potentialPayout = betAmount ? calculatePotentialPayout(parseFloat(betAmount)) : 0;
 
+  // Handle placing a bet
+  const handlePlaceBet = async () => {
+    if (!selectedEvent || !selectedOption || !betAmount) return;
+    
+    // Validate bet amount
+    const amount = parseFloat(betAmount);
+    if (isNaN(amount) || amount < MIN_BET_AMOUNT) {
+      toast.error(`Minimum bet amount is ${MIN_BET_AMOUNT} SOL`);
+      return;
+    }
+    
+    if (amount > MAX_BET_AMOUNT) {
+      toast.error(`Maximum bet amount is ${MAX_BET_AMOUNT} SOL`);
+      return;
+    }
+    
+    if (amount > balance) {
+      toast.error('Insufficient balance');
+      return;
+    }
+    
+    // Set transaction status to pending
+    setTxStatus({
+      status: 'pending',
+      message: 'Processing your bet...',
+    });
+    
+    try {
+      // Place bet
+      const result = await placeBet({
+        eventId: selectedEvent.id,
+        outcome: selectedOption,
+        stakeAmount: amount
+      });
+      
+      if (result) {
+        // Update transaction status
+        setTxStatus({
+          status: 'success',
+          signature: result.signature,
+          message: 'Bet placed successfully!',
+        });
+        
+        // Reset form after a delay
+        setTimeout(() => {
+          setSelectedEvent(null);
+          setSelectedOption('');
+          setBetAmount('');
+          setTxStatus(null);
+        }, 5000);
+      } else {
+        throw new Error('Failed to place bet');
+      }
+    } catch (error) {
+      console.error('Error placing bet:', error);
+      
+      // Update transaction status
+      setTxStatus({
+        status: 'error',
+        message: 'Failed to place bet',
+        error: error.message,
+      });
+    }
+  };
+
+  // Format time remaining
   const formatTimeRemaining = (endTime) => {
-    const end = new Date(endTime)
-    const now = new Date()
-    const diff = end - now
+    const end = new Date(endTime);
+    const now = new Date();
+    const diff = end - now;
     
-    if (diff <= 0) return 'Ended'
+    if (diff <= 0) return 'Ended';
     
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     
-    if (days > 0) return `${days}d ${hours}h`
-    return `${hours}h`
-  }
+    if (days > 0) return `${days}d ${hours}h`;
+    return `${hours}h`;
+  };
+
+  // Reset transaction status when wallet disconnects
+  useEffect(() => {
+    if (!isConnected) {
+      setTxStatus(null);
+    }
+  }, [isConnected]);
 
   return (
     <div className="space-y-6">
@@ -86,61 +121,86 @@ export function BettingInterface() {
         )}
       </div>
 
+      {/* Transaction Status */}
+      {txStatus && (
+        <TransactionStatus
+          status={txStatus.status}
+          signature={txStatus.signature}
+          message={txStatus.message}
+          error={txStatus.error}
+        />
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Events List */}
         <div className="lg:col-span-2 space-y-4">
-          {mockEvents.map((event) => (
-            <Card 
-              key={event.id} 
-              className={`cursor-pointer transition-all ${
-                selectedEvent?.id === event.id ? 'ring-2 ring-purple-500' : ''
-              }`}
-              onClick={() => setSelectedEvent(event)}
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-white mb-2">{event.title}</h3>
-                  <p className="text-gray-400 text-sm mb-3">{event.description}</p>
-                  
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {event.options.map((option) => (
-                      <span 
-                        key={option}
-                        className="px-3 py-1 bg-purple-600/20 text-purple-300 rounded-full text-sm"
-                      >
-                        {option}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <Trophy className="h-6 w-6 text-purple-400 ml-4" />
-              </div>
-              
-              <div className="grid grid-cols-3 gap-4 text-sm">
-                <div className="flex items-center space-x-2">
-                  <DollarSign className="h-4 w-4 text-green-400" />
-                  <div>
-                    <p className="text-gray-400">Total Pool</p>
-                    <p className="text-white font-medium">{event.totalPool} SOL</p>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Users className="h-4 w-4 text-blue-400" />
-                  <div>
-                    <p className="text-gray-400">Participants</p>
-                    <p className="text-white font-medium">{event.participants}</p>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Clock className="h-4 w-4 text-yellow-400" />
-                  <div>
-                    <p className="text-gray-400">Time Left</p>
-                    <p className="text-white font-medium">{formatTimeRemaining(event.endTime)}</p>
-                  </div>
-                </div>
-              </div>
+          {isBetsLoading ? (
+            <Card className="p-8 text-center">
+              <Loader2 className="h-8 w-8 text-purple-400 animate-spin mx-auto mb-4" />
+              <p className="text-gray-400">Loading events...</p>
             </Card>
-          ))}
+          ) : events.length === 0 ? (
+            <Card className="p-8 text-center">
+              <AlertCircle className="h-8 w-8 text-gray-500 mx-auto mb-4" />
+              <p className="text-gray-400">No active events found</p>
+            </Card>
+          ) : (
+            events.filter(event => event.status === 'active').map((event) => (
+              <Card 
+                key={event.id} 
+                className={`cursor-pointer transition-all ${
+                  selectedEvent?.id === event.id ? 'ring-2 ring-purple-500' : ''
+                }`}
+                onClick={() => {
+                  setSelectedEvent(event);
+                  setSelectedOption('');
+                }}
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-white mb-2">{event.title}</h3>
+                    <p className="text-gray-400 text-sm mb-3">{event.description}</p>
+                    
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {event.options.map((option) => (
+                        <span 
+                          key={option}
+                          className="px-3 py-1 bg-purple-600/20 text-purple-300 rounded-full text-sm"
+                        >
+                          {option}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <Trophy className="h-6 w-6 text-purple-400 ml-4" />
+                </div>
+                
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div className="flex items-center space-x-2">
+                    <DollarSign className="h-4 w-4 text-green-400" />
+                    <div>
+                      <p className="text-gray-400">Total Pool</p>
+                      <p className="text-white font-medium">{event.totalPool} SOL</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Users className="h-4 w-4 text-blue-400" />
+                    <div>
+                      <p className="text-gray-400">Participants</p>
+                      <p className="text-white font-medium">{event.participants}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Clock className="h-4 w-4 text-yellow-400" />
+                    <div>
+                      <p className="text-gray-400">Time Left</p>
+                      <p className="text-white font-medium">{formatTimeRemaining(event.endTime)}</p>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            ))
+          )}
         </div>
 
         {/* Betting Panel */}
@@ -167,6 +227,7 @@ export function BettingInterface() {
                             ? 'border-purple-500 bg-purple-600/20 text-white'
                             : 'border-white/20 bg-white/5 text-gray-300 hover:bg-white/10'
                         }`}
+                        disabled={isProcessing}
                       >
                         {option}
                       </button>
@@ -175,35 +236,57 @@ export function BettingInterface() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm text-gray-400 mb-2">Bet Amount (SOL)</label>
+                  <label className="block text-sm text-gray-400 mb-2">
+                    Bet Amount (SOL) 
+                    <span className="text-xs ml-1">
+                      (Min: {MIN_BET_AMOUNT}, Max: {MAX_BET_AMOUNT})
+                    </span>
+                  </label>
                   <Input
                     type="number"
                     placeholder="0.0"
                     value={betAmount}
                     onChange={(e) => setBetAmount(e.target.value)}
                     step="0.1"
-                    min="0.1"
+                    min={MIN_BET_AMOUNT}
+                    max={MAX_BET_AMOUNT}
+                    disabled={isProcessing}
                   />
+                  
+                  {isConnected && (
+                    <p className="text-xs text-gray-400 mt-1">
+                      Balance: {balance.toFixed(2)} SOL
+                    </p>
+                  )}
                 </div>
                 
                 {betAmount && selectedOption && (
                   <div className="p-3 bg-purple-600/10 rounded-lg border border-purple-500/20">
                     <p className="text-sm text-gray-400">Potential Payout</p>
                     <p className="text-lg font-semibold text-white">
-                      ~{(parseFloat(betAmount) * 1.8).toFixed(2)} SOL
+                      ~{potentialPayout.toFixed(2)} SOL
                     </p>
                     <p className="text-xs text-gray-500">
-                      (Includes 5% platform fee)
+                      (Includes {PLATFORM_FEE_PERCENT}% platform fee)
                     </p>
                   </div>
                 )}
                 
                 <Button
                   onClick={handlePlaceBet}
-                  disabled={!isConnected || !selectedOption || !betAmount}
+                  disabled={!isConnected || !selectedOption || !betAmount || isProcessing || txStatus?.status === 'pending'}
                   className="w-full"
                 >
-                  {!isConnected ? 'Connect Wallet' : 'Place Bet'}
+                  {isProcessing || txStatus?.status === 'pending' ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Processing...
+                    </>
+                  ) : !isConnected ? (
+                    'Connect Wallet'
+                  ) : (
+                    'Place Bet'
+                  )}
                 </Button>
               </div>
             ) : (
@@ -216,5 +299,5 @@ export function BettingInterface() {
         </div>
       </div>
     </div>
-  )
+  );
 }
